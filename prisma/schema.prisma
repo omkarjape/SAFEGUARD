@@ -1,0 +1,220 @@
+// Prisma Schema for Smart Industrial Worker Safety & Real-Time Monitoring System
+// Multi-worker & Multi-jacket Ready Architecture
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  SUPERVISOR
+  ADMIN
+  OPERATOR
+}
+
+enum SafetyStatus {
+  SAFE
+  WARNING
+  CRITICAL
+  OFFLINE
+}
+
+enum DeviceStatus {
+  ONLINE
+  WARNING
+  OFFLINE
+  MAINTENANCE
+}
+
+enum JacketStatus {
+  ACTIVE
+  INACTIVE
+  MAINTENANCE
+}
+
+enum AlertType {
+  FALL_DETECTED
+  SOS_PRESSED
+  HIGH_TEMPERATURE
+  HIGH_GAS
+  POOR_AIR_QUALITY
+  FLAME_DETECTED
+  LOW_BATTERY
+  DEVICE_OFFLINE
+  GEOFENCE_BREACH
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum AlertStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String
+  passwordHash String
+  role         Role      @default(SUPERVISOR)
+  department   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model Worker {
+  id               String            @id @default(uuid())
+  workerId         String            @unique // e.g., "W001"
+  name             String
+  department       String
+  designation      String
+  phone            String
+  email            String?
+  emergencyContact String
+  shift            String?           @default("DAY")
+  bloodGroup       String?
+  medicalNotes     String?
+  safetyTrainingDate String?
+  status           SafetyStatus      @default(SAFE)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  safetyJacket     SafetyJacket?
+  alerts           Alert[]
+  locationReadings LocationReading[]
+
+  @@map("workers")
+}
+
+model SafetyJacket {
+  id          String        @id @default(uuid())
+  jacketId    String        @unique // e.g., "SJ001"
+  model       String        @default("SAFEGUARD-PRO-V1")
+  status      JacketStatus  @default(ACTIVE)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  workerId    String?       @unique
+  worker      Worker?       @relation(fields: [workerId], references: [id])
+
+  device      Device?
+  alerts      Alert[]
+
+  @@map("safety_jackets")
+}
+
+model Device {
+  id               String            @id @default(uuid())
+  deviceId         String            @unique // e.g., "ESP32_001"
+  firmwareVersion  String            @default("v1.0.0")
+  ipAddress        String?
+  macAddress       String?
+  wifiRssi         Float?            @default(-55.0)
+  batteryVoltage   Float?            @default(4.0)
+  hardwareStatus   String?           @default("ACTIVE")
+  lastSeen         DateTime          @default(now())
+  batteryPercentage Float            @default(100.0)
+  connectionStatus DeviceStatus      @default(ONLINE)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  jacketId         String?           @unique
+  jacket           SafetyJacket?     @relation(fields: [jacketId], references: [id])
+
+  sensorReadings   SensorReading[]
+  alerts           Alert[]
+  locationReadings LocationReading[]
+
+  @@map("devices")
+}
+
+model SensorReading {
+  id                String    @id @default(uuid())
+  deviceId          String
+  jacketId          String?
+  workerId          String?
+  temperature       Float?    // DHT22 (°C)
+  humidity          Float?    // DHT22 (% RH)
+  gasLevel          Float?    // MQ-2 (ppm)
+  airQuality        Float?    // MQ-135 (ppm / index)
+  flameDetected     Boolean   @default(false) // Flame digital / analog trigger
+  fallDetected      Boolean   @default(false) // MPU6050 accelerometer impact
+  sosPressed        Boolean   @default(false) // Hardware push button
+  batteryPercentage Float?
+  latitude          Float?    // NEO-6M GPS
+  longitude         Float?    // NEO-6M GPS
+  timestamp         DateTime  @default(now())
+
+  device            Device    @relation(fields: [deviceId], references: [deviceId], onDelete: Cascade)
+
+  @@index([deviceId, timestamp])
+  @@index([timestamp])
+  @@map("sensor_readings")
+}
+
+model Alert {
+  id             String        @id @default(uuid())
+  workerId       String?
+  jacketId       String?
+  deviceId       String
+  type           AlertType
+  severity       AlertSeverity
+  message        String
+  latitude       Float?
+  longitude      Float?
+  status         AlertStatus   @default(ACTIVE)
+  createdAt      DateTime      @default(now())
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+  resolvedAt     DateTime?
+  resolvedBy     String?
+  resolutionNotes String?
+  rootCause      String?
+
+  worker         Worker?       @relation(fields: [workerId], references: [workerId])
+  jacket         SafetyJacket? @relation(fields: [jacketId], references: [jacketId])
+  device         Device        @relation(fields: [deviceId], references: [deviceId])
+
+  @@index([status, severity])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
+model LocationReading {
+  id        String    @id @default(uuid())
+  workerId  String?
+  deviceId  String
+  latitude  Float
+  longitude Float
+  altitude  Float?
+  accuracy  Float?
+  timestamp DateTime  @default(now())
+
+  worker    Worker?   @relation(fields: [workerId], references: [workerId])
+  device    Device    @relation(fields: [deviceId], references: [deviceId])
+
+  @@index([workerId, timestamp])
+  @@map("location_readings")
+}
+
+model SystemEvent {
+  id        String    @id @default(uuid())
+  eventType String
+  description String
+  severity  String    @default("INFO")
+  metadata  Json?
+  createdAt DateTime  @default(now())
+
+  @@map("system_events")
+}
